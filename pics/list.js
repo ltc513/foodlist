@@ -1,0 +1,1 @@
+self.FOOD_PICS = ["pics/01.jpg", "pics/02.jpg", "pics/03.jpg", "pics/04.jpg", "pics/05.jpg", "pics/06.jpg", "pics/07.jpg", "pics/08.jpg", "pics/09.jpg", "pics/10.jpg", "pics/11.jpg", "pics/12.jpg", "pics/13.jpg", "pics/14.jpg", "pics/15.jpg", "pics/16.jpg", "pics/17.jpg", "pics/18.jpg", "pics/19.jpg"];
