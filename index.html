@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#ffe9f2">
+<meta name="apple-mobile-web-app-title" content="美食清单">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<title>美食清单 · 外卖纪录</title>
+<style>
+	* { box-sizing: border-box; }
+	html { -webkit-text-size-adjust: 100%; }
+	html, body {
+		overflow-x: hidden;
+		overscroll-behavior-x: none;
+		max-width: 100%;
+	}
+	body {
+		margin: 0;
+		padding: calc(20px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right)) calc(40px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
+		font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+		background-color: #ffeef6;
+		color: #4a2f3a;
+		-webkit-font-smoothing: antialiased;
+		-webkit-tap-highlight-color: transparent;
+		touch-action: pan-y pinch-zoom;
+	}
+	/* 全页背景图 + 粉色蒙层 */
+	.bg-layer {
+		position: fixed;
+		inset: 0;
+		z-index: 0;
+		pointer-events: none;
+	}
+	.bg-img {
+		position: absolute;
+		inset: 0;
+		background-size: cover;
+		background-position: center top;
+		background-repeat: no-repeat;
+	}
+	.bg-veil {
+		position: absolute;
+		inset: 0;
+		background: linear-gradient(180deg, rgba(255, 240, 247, .52) 0%, rgba(255, 232, 242, .60) 50%, rgba(255, 246, 250, .76) 100%);
+	}
+	.bg-layer.strong .bg-veil {
+		background: linear-gradient(180deg, rgba(255, 240, 247, .66) 0%, rgba(255, 232, 242, .70) 55%, rgba(255, 247, 251, .82) 100%);
+	}
+	.wrap { max-width: 880px; margin: 0 auto; position: relative; z-index: 1; }
+	h1 {
+		font-size: 30px;
+		margin: 0 0 4px;
+		letter-spacing: 2px;
+		color: #d94f8c;
+		text-shadow: 0 2px 0 #fff;
+	}
+	.sub { color: #b07a92; font-size: 13px; margin-bottom: 0; }
+
+	.panel {
+		background: rgba(255, 250, 253, .2);
+		-webkit-backdrop-filter: blur(4px);
+		backdrop-filter: blur(4px);
+		border: 1px solid rgba(248, 203, 223, .55);
+		border-radius: 16px;
+		padding: 18px;
+		box-shadow: 0 4px 16px rgba(226, 90, 140, .08);
+		margin-bottom: 22px;
+	}
+	.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+	.grid > div { min-width: 0; }
+	.grid .full { grid-column: 1 / -1; }
+
+	label { display: block; font-size: 12px; color: #b07a92; margin-bottom: 4px; }
+	input[type=text], input[type=date], textarea, select {
+		width: 100%;
+		max-width: 100%;
+		min-width: 0;
+		min-height: 44px;
+		padding: 10px 12px;
+		font: inherit;
+		font-size: 16px;
+		color: inherit;
+		background: rgba(255, 255, 255, .16);
+		border: 1px solid rgba(244, 211, 225, .6);
+		border-radius: 9px;
+		outline: none;
+	}
+	/* iOS 日期控件自带内在最小宽度，必须重置原生外观才吃 width:100% */
+	input[type=date] {
+		display: block;
+		width: 100%;
+		max-width: 100%;
+		min-width: 0;
+		-webkit-appearance: none;
+		appearance: none;
+		overflow: hidden;
+	}
+	input[type=date]::-webkit-date-and-time-value { text-align: left; }
+	input[type=date]::-webkit-calendar-picker-indicator { opacity: .5; margin-left: auto; }
+	select {
+		-webkit-appearance: none;
+		appearance: none;
+		padding-right: 34px;
+		background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8'><path d='M1 1l5 5 5-5' fill='none' stroke='%23c25b8a' stroke-width='2' stroke-linecap='round'/></svg>");
+		background-repeat: no-repeat;
+		background-position: right 12px center;
+	}
+	input:focus, textarea:focus, select:focus { border-color: #ef6ea6; box-shadow: 0 0 0 3px rgba(239, 110, 166, .15); }
+	input::placeholder, textarea::placeholder { color: #cba6b6; }
+	textarea { resize: vertical; min-height: 78px; line-height: 1.5; }
+
+	.actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; align-items: center; }
+	button {
+		font: inherit;
+		font-size: 15px;
+		min-height: 44px;
+		padding: 9px 20px;
+		border-radius: 9px;
+		border: 1px solid transparent;
+		cursor: pointer;
+		transition: .15s;
+		touch-action: manipulation;
+	}
+	.btn-main { background: #ef6ea6; color: #fff; box-shadow: 0 3px 10px rgba(239, 110, 166, .3); }
+	.btn-main:hover { background: #e35c95; }
+	.btn-ghost { background: rgba(255, 255, 255, .45); border-color: #f4d3e1; color: #a35f7d; }
+	.btn-ghost:hover { background: #fff2f8; }
+	.hint { font-size: 12px; color: #bd93a4; }
+
+	.toolbar {
+		display: flex;
+		gap: 8px;
+		flex-wrap: wrap;
+		align-items: center;
+		margin-bottom: 16px;
+	}
+	.chip {
+		padding: 8px 14px;
+		border-radius: 999px;
+		border: 1px solid rgba(244, 211, 225, .7);
+		background: rgba(255, 255, 255, .4);
+		font-size: 14px;
+		cursor: pointer;
+		color: #a35f7d;
+		min-height: 40px;
+		touch-action: manipulation;
+	}
+	.chip.on { background: #ef6ea6; color: #fff; border-color: #ef6ea6; box-shadow: 0 3px 10px rgba(239, 110, 166, .25); }
+	.toolbar input[type=text] { flex: 1; min-width: 160px; }
+
+	.card {
+		background: rgba(255, 250, 253, .26);
+		-webkit-backdrop-filter: blur(3px);
+		backdrop-filter: blur(3px);
+		border: 1px solid rgba(248, 203, 223, .55);
+		border-left: 5px solid #f3c0d5;
+		border-radius: 14px;
+		padding: 16px 18px;
+		margin-bottom: 14px;
+		box-shadow: 0 3px 12px rgba(226, 90, 140, .07);
+	}
+	.card.good { border-left-color: #ef6ea6; }
+	.card.ok   { border-left-color: #e8b96a; }
+	.card.bad  { border-left-color: #a99aa3; }
+
+	.card-head {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 10px;
+		align-items: baseline;
+		margin-bottom: 6px;
+	}
+	.shop { font-size: 18px; font-weight: 600; color: #d94f8c; }
+	.dish { font-size: 14px; color: #b07a92; }
+	.tag {
+		font-size: 12px;
+		padding: 2px 9px;
+		border-radius: 999px;
+		margin-left: auto;
+		white-space: nowrap;
+	}
+	.tag.good { background: #ffe1ed; color: #c93f78; }
+	.tag.ok   { background: #fdf1d9; color: #97722c; }
+	.tag.bad  { background: #eee9ec; color: #6f646b; }
+
+	.rows { margin: 10px 0 0; font-size: 14px; line-height: 1.7; }
+	.row { display: flex; gap: 8px; }
+	.row + .row { margin-top: 4px; }
+	.k { flex: 0 0 42px; color: #bd93a4; font-size: 13px; }
+	.pros { color: #c93f78; }
+	.cons { color: #7d6f78; }
+
+	.card-foot {
+		margin-top: 12px;
+		padding-top: 10px;
+		border-top: 1px dashed #f7cfe0;
+		display: flex;
+		gap: 12px;
+		align-items: center;
+		font-size: 12px;
+		color: #bd93a4;
+	}
+	.card-foot button {
+		padding: 5px 12px;
+		font-size: 13px;
+		min-height: 34px;
+		background: none;
+		border: 1px solid #f4d3e1;
+		color: #a35f7d;
+	}
+	.card-foot button:hover { background: #fff2f8; }
+	.card-foot .del:hover { border-color: #ef6ea6; color: #c93f78; }
+
+	.empty {
+		text-align: center;
+		color: #c9a3b3;
+		font-size: 14px;
+		padding: 40px 0;
+	}
+
+	/* 边角小照片：压在面板下面，露出一小块 */
+	.pin-wrap { position: relative; }
+	.pin {
+		display: none;
+		position: absolute;
+		z-index: 0;
+		width: 82px;
+		padding: 3px;
+		background: #fff;
+		border-radius: 6px;
+		box-shadow: 0 4px 12px rgba(226, 90, 140, .18);
+		pointer-events: none;
+	}
+	.pin img {
+		display: block;
+		width: 100%;
+		aspect-ratio: 1 / 1;
+		object-fit: cover;
+		border-radius: 3px;
+		background: #ffe9f2;
+	}
+	.pin-a { bottom: -22px; left: -10px; transform: rotate(-7deg); }
+	.pin-b { top: -24px; right: -10px; transform: rotate(6deg); }
+	.panel, .toolbar, #list { position: relative; z-index: 1; }
+	@media (max-width: 560px) {
+		.pin { width: 68px; }
+	}
+
+	/* 移动端（iPhone 15 Pro 等 ~390px 宽，含刘海与底部 home 条） */
+	@media (max-width: 560px) {
+		body {
+			padding-left: calc(12px + env(safe-area-inset-left));
+			padding-right: calc(12px + env(safe-area-inset-right));
+		}
+		h1 { font-size: 26px; letter-spacing: 1px; }
+		.head { margin-bottom: 16px; }
+		.grid { grid-template-columns: 1fr; gap: 10px; }
+		.panel { padding: 14px; border-radius: 12px; margin-bottom: 18px; }
+		.actions { gap: 8px; }
+		.actions button { flex: 1 1 auto; }
+		.hint { flex-basis: 100%; }
+		.toolbar { gap: 6px; }
+		.toolbar input[type=text] { flex-basis: 100%; }
+		.card { padding: 14px 14px 12px; }
+		.shop { font-size: 17px; }
+		.tag { font-size: 12px; }
+		.card-foot { gap: 8px; }
+		.card-foot button { min-height: 38px; padding: 6px 14px; }
+	}
+
+	/* 触屏设备去掉 hover 残留，避免点完一直留着背景 */
+	@media (hover: none) {
+		.btn-main:hover { background: #ef6ea6; }
+		.btn-ghost:hover { background: rgba(255, 255, 255, .45); }
+		.btn-danger:hover { background: #e35c95; }
+		.card-foot button:hover { background: none; }
+		.card-foot .del:hover { border-color: #f4d3e1; color: #a35f7d; }
+	}
+
+	/* 顶部小照片（拍立得） */
+	.head {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 12px;
+		margin-bottom: 22px;
+	}
+	.head-pic {
+		flex: 0 0 auto;
+		width: 96px;
+		padding: 5px 5px 14px;
+		background: #fff;
+		border-radius: 8px;
+		box-shadow: 0 4px 14px rgba(226, 90, 140, .2);
+		transform: rotate(6deg);
+	}
+	.head-pic img {
+		display: block;
+		width: 100%;
+		aspect-ratio: 1 / 1;
+		object-fit: cover;
+		border-radius: 4px;
+		background: #ffe9f2;
+	}
+	@media (max-width: 560px) {
+		.head-pic { width: 78px; }
+	}
+
+	/* 自绘确认框：不依赖 window.confirm，微信/iOS 预览里也能用 */
+	.mask {
+		display: none;
+		position: fixed;
+		inset: 0;
+		z-index: 90;
+		background: rgba(74, 47, 58, .42);
+		align-items: center;
+		justify-content: center;
+		padding: calc(20px + env(safe-area-inset-top)) 20px calc(20px + env(safe-area-inset-bottom));
+	}
+	.mask.show { display: flex; }
+	.dialog {
+		width: 100%;
+		max-width: 320px;
+		background: #fffafd;
+		border: 1px solid #f8cbdf;
+		border-radius: 16px;
+		padding: 20px;
+		box-shadow: 0 14px 40px rgba(201, 63, 120, .22);
+	}
+	.dialog-text {
+		font-size: 15px;
+		line-height: 1.6;
+		text-align: center;
+		margin-bottom: 18px;
+		word-break: break-word;
+	}
+	.dialog-actions { display: flex; gap: 10px; }
+	.dialog-actions button { flex: 1; padding: 9px 12px; }
+	.btn-danger { background: #e35c95; color: #fff; }
+	.btn-danger:hover { background: #d24b86; }
+</style>
+</head>
+<body>
+<div class="bg-layer" id="bg-layer" aria-hidden="true">
+	<div class="bg-img" id="bg-img"></div>
+	<div class="bg-veil"></div>
+</div>
+<div class="wrap">
+	<div class="head">
+		<div class="head-text">
+			<h1>美食清单</h1>
+			<div class="sub">吃过什么 · 好吃记一笔 · 踩雷也记一笔</div>
+		</div>
+		<div class="head-pic" id="head-pic" style="display:none"></div>
+	</div>
+
+	<div class="pin-wrap">
+	<div class="pin pin-a" id="pin-a"></div>
+	<div class="panel">
+		<div class="grid">
+			<div>
+				<label>店名</label>
+				<input type="text" id="f-shop" placeholder="例如：椒娘娘">
+			</div>
+			<div>
+				<label>菜品 / 吃的是什么</label>
+				<input type="text" id="f-dish" placeholder="例如：干拌麻辣烫">
+			</div>
+			<div>
+				<label>评价</label>
+				<select id="f-verdict">
+					<option value="good">好吃，回购</option>
+					<option value="ok">一般，能吃</option>
+					<option value="bad">踩雷，算了</option>
+				</select>
+			</div>
+			<div>
+				<label>日期</label>
+				<input type="date" id="f-date">
+			</div>
+			<div class="full">
+				<label>优点</label>
+				<textarea id="f-pros" placeholder="哪一点打动你"></textarea>
+			</div>
+			<div class="full">
+				<label>缺点</label>
+				<textarea id="f-cons" placeholder="哪一点劝退"></textarea>
+			</div>
+		</div>
+		<div class="actions">
+			<button class="btn-main" id="btn-save">保存</button>
+			<button class="btn-ghost" id="btn-cancel" style="display:none">取消编辑</button>
+			<span class="hint">数据存在本地浏览器，换设备不同步</span>
+		</div>
+	</div>
+	</div>
+
+	<div class="toolbar">
+		<button class="chip on" data-filter="all">全部</button>
+		<button class="chip" data-filter="good">好吃</button>
+		<button class="chip" data-filter="ok">一般</button>
+		<button class="chip" data-filter="bad">踩雷</button>
+		<input type="text" id="search" placeholder="搜店名 / 菜品 / 优点 / 缺点">
+		<button class="chip" id="btn-export">导出备份</button>
+		<button class="chip" id="btn-import">导入</button>
+		<input type="file" id="file-import" accept="application/json,.json" style="display:none">
+	</div>
+
+	<div class="pin-wrap">
+		<div class="pin pin-b" id="pin-b"></div>
+		<div id="list"></div>
+	</div>
+</div>
+
+<div class="mask" id="mask">
+	<div class="dialog">
+		<div class="dialog-text" id="dlg-text"></div>
+		<div class="dialog-actions">
+			<button class="btn-ghost" id="dlg-cancel">取消</button>
+			<button class="btn-danger" id="dlg-ok">确定</button>
+		</div>
+	</div>
+</div>
+
+<script src="pics/list.js"></script>
+<script>
+	(function () {
+		var KEY = 'foodList.v1';
+		var VERDICT_TEXT = { good: '好吃', ok: '一般', bad: '踩雷' };
+		var editingId = null;
+		var filter = 'all';
+		var keyword = '';
+
+		var $ = function (id) { return document.getElementById(id); };
+
+		var pendingOk = null;
+
+		function showDialog(text, okText, onOk, showCancel) {
+			$('dlg-text').textContent = text;
+			$('dlg-ok').textContent = okText || '确定';
+			$('dlg-cancel').style.display = showCancel ? '' : 'none';
+			pendingOk = onOk || null;
+			$('mask').classList.add('show');
+		}
+
+		function closeDialog() {
+			$('mask').classList.remove('show');
+			pendingOk = null;
+		}
+
+		var cache = null;
+
+		function load() {
+			if (cache) return cache;
+			try {
+				var raw = localStorage.getItem(KEY);
+				cache = raw ? JSON.parse(raw) : [];
+			} catch (e) {
+				cache = [];
+			}
+			return cache;
+		}
+
+		function save(items) {
+			cache = items;
+			try {
+				localStorage.setItem(KEY, JSON.stringify(items));
+			} catch (e) {
+				// 本地文件被浏览器禁用存储时，退回内存态：本次打开期间可用，刷新会丢
+			}
+		}
+
+		function hasStored() {
+			try {
+				return localStorage.getItem(KEY) !== null;
+			} catch (e) {
+				return false;
+			}
+		}
+
+		function today() {
+			var d = new Date();
+			var m = ('0' + (d.getMonth() + 1)).slice(-2);
+			var day = ('0' + d.getDate()).slice(-2);
+			return d.getFullYear() + '-' + m + '-' + day;
+		}
+
+		function clearForm() {
+			editingId = null;
+			$('f-shop').value = '';
+			$('f-dish').value = '';
+			$('f-verdict').value = 'good';
+			$('f-date').value = today();
+			$('f-pros').value = '';
+			$('f-cons').value = '';
+			$('btn-save').textContent = '保存';
+			$('btn-cancel').style.display = 'none';
+		}
+
+		function fillForm(item) {
+			editingId = item.id;
+			$('f-shop').value = item.shop || '';
+			$('f-dish').value = item.dish || '';
+			$('f-verdict').value = item.verdict || 'good';
+			$('f-date').value = item.date || today();
+			$('f-pros').value = item.pros || '';
+			$('f-cons').value = item.cons || '';
+			$('btn-save').textContent = '更新';
+			$('btn-cancel').style.display = '';
+			window.scrollTo({ top: 0, behavior: 'smooth' });
+		}
+
+		function match(item) {
+			if (filter !== 'all' && item.verdict !== filter) return false;
+			if (!keyword) return true;
+			var hay = [item.shop, item.dish, item.pros, item.cons].join('\n').toLowerCase();
+			return hay.indexOf(keyword) !== -1;
+		}
+
+		function makeRow(k, text, cls) {
+			var row = document.createElement('div');
+			row.className = 'row';
+			var kEl = document.createElement('div');
+			kEl.className = 'k';
+			kEl.textContent = k;
+			var vEl = document.createElement('div');
+			vEl.className = cls;
+			vEl.textContent = text;
+			row.appendChild(kEl);
+			row.appendChild(vEl);
+			return row;
+		}
+
+		function makeCard(item) {
+			var card = document.createElement('div');
+			card.className = 'card ' + (item.verdict || 'ok');
+
+			var head = document.createElement('div');
+			head.className = 'card-head';
+
+			var shop = document.createElement('div');
+			shop.className = 'shop';
+			shop.textContent = item.shop || '（没写店名）';
+			head.appendChild(shop);
+
+			if (item.dish) {
+				var dish = document.createElement('div');
+				dish.className = 'dish';
+				dish.textContent = item.dish;
+				head.appendChild(dish);
+			}
+
+			var tag = document.createElement('div');
+			tag.className = 'tag ' + (item.verdict || 'ok');
+			tag.textContent = VERDICT_TEXT[item.verdict] || '一般';
+			head.appendChild(tag);
+
+			card.appendChild(head);
+
+			var rows = document.createElement('div');
+			rows.className = 'rows';
+			if (item.pros) rows.appendChild(makeRow('优点', item.pros, 'pros'));
+			if (item.cons) rows.appendChild(makeRow('缺点', item.cons, 'cons'));
+			card.appendChild(rows);
+
+			var foot = document.createElement('div');
+			foot.className = 'card-foot';
+
+			var date = document.createElement('span');
+			date.textContent = item.date || '';
+			foot.appendChild(date);
+
+			var spacer = document.createElement('span');
+			spacer.style.flex = '1';
+			foot.appendChild(spacer);
+
+			var editBtn = document.createElement('button');
+			editBtn.textContent = '编辑';
+			editBtn.onclick = function () { fillForm(item); };
+			foot.appendChild(editBtn);
+
+			var delBtn = document.createElement('button');
+			delBtn.className = 'del';
+			delBtn.textContent = '删除';
+			delBtn.onclick = function () {
+				showDialog('删除「' + (item.shop || '这条') + '」？', '删除', function () {
+					var items = load().filter(function (x) { return x.id !== item.id; });
+					save(items);
+					if (editingId === item.id) clearForm();
+					render();
+				}, true);
+			};
+			foot.appendChild(delBtn);
+
+			card.appendChild(foot);
+			return card;
+		}
+
+		function render() {
+			var listEl = $('list');
+			listEl.innerHTML = '';
+			var items = load()
+				.filter(match)
+				.sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); });
+
+			if (!items.length) {
+				var empty = document.createElement('div');
+				empty.className = 'empty';
+				empty.textContent = '还没记录，上面填一条试试';
+				listEl.appendChild(empty);
+				return;
+			}
+
+			items.forEach(function (item) {
+				listEl.appendChild(makeCard(item));
+			});
+		}
+
+		var BG_POOL = [
+			{ src: 'pics/16.jpg', strong: false },
+			{ src: 'pics/17.jpg', strong: true }
+		];
+
+		function renderBg() {
+			var forced = (location.search.match(/bg=(\d+)/) || [])[1];
+			var pick = BG_POOL[Math.floor(Math.random() * BG_POOL.length)];
+			if (forced) {
+				pick = { src: 'pics/' + ('0' + forced).slice(-2) + '.jpg', strong: forced === '17' };
+			}
+			$('bg-img').style.backgroundImage = 'url("' + pick.src + '")';
+			if (pick.strong) $('bg-layer').classList.add('strong');
+		}
+
+		function pickPhoto(pool) {
+			return pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
+		}
+
+		function fillPhoto(boxId, src) {
+			var box = $(boxId);
+			var img = document.createElement('img');
+			img.src = src;
+			img.alt = '';
+			img.onerror = function () { box.style.display = 'none'; };
+			box.appendChild(img);
+			box.style.display = 'block';
+		}
+
+		function renderPics() {
+			var all = self.FOOD_PICS || [];
+			if (!all.length) return;
+			var pool = all.slice();
+			fillPhoto('head-pic', pickPhoto(pool));
+			if (pool.length) fillPhoto('pin-a', pickPhoto(pool));
+			if (pool.length) fillPhoto('pin-b', pickPhoto(pool));
+		}
+
+		$('btn-save').onclick = function () {
+			var shop = $('f-shop').value.trim();
+			var dish = $('f-dish').value.trim();
+			var pros = $('f-pros').value.trim();
+			var cons = $('f-cons').value.trim();
+			if (!shop) {
+				showDialog('店名总得写一下吧', '好', function () { $('f-shop').focus(); }, false);
+				return;
+			}
+
+			var items = load();
+			if (editingId) {
+				items = items.map(function (x) {
+					if (x.id !== editingId) return x;
+					return {
+						id: x.id,
+						shop: shop,
+						dish: dish,
+						verdict: $('f-verdict').value,
+						date: $('f-date').value || today(),
+						pros: pros,
+						cons: cons
+					};
+				});
+			} else {
+				items.push({
+					id: 'id' + Date.now() + Math.random().toString(36).slice(2, 7),
+					shop: shop,
+					dish: dish,
+					verdict: $('f-verdict').value,
+					date: $('f-date').value || today(),
+					pros: pros,
+					cons: cons
+				});
+			}
+			save(items);
+			clearForm();
+			render();
+		};
+
+		$('btn-cancel').onclick = clearForm;
+
+		document.querySelectorAll('.chip[data-filter]').forEach(function (chip) {
+			chip.onclick = function () {
+				document.querySelectorAll('.chip[data-filter]').forEach(function (c) { c.classList.remove('on'); });
+				chip.classList.add('on');
+				filter = chip.getAttribute('data-filter');
+				render();
+			};
+		});
+
+		$('search').oninput = function (e) {
+			keyword = e.target.value.trim().toLowerCase();
+			render();
+		};
+
+		$('dlg-cancel').onclick = closeDialog;
+		$('dlg-ok').onclick = function () {
+			var fn = pendingOk;
+			closeDialog();
+			if (fn) fn();
+		};
+		$('mask').onclick = function (e) {
+			if (e.target === $('mask')) closeDialog();
+		};
+
+		$('btn-export').onclick = function () {
+			var blob = new Blob([JSON.stringify(load(), null, 2)], { type: 'application/json' });
+			var url = URL.createObjectURL(blob);
+			var a = document.createElement('a');
+			a.href = url;
+			a.download = '美食清单-' + today() + '.json';
+			document.body.appendChild(a);
+			a.click();
+			document.body.removeChild(a);
+			setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+		};
+
+		$('btn-import').onclick = function () { $('file-import').click(); };
+
+		$('file-import').onchange = function (e) {
+			var file = e.target.files && e.target.files[0];
+			if (!file) return;
+			var reader = new FileReader();
+			reader.onload = function () {
+				var arr;
+				try {
+					arr = JSON.parse(reader.result);
+				} catch (err) {
+					arr = null;
+				}
+				if (!Array.isArray(arr)) {
+					showDialog('这个文件不是清单备份', '好', null, false);
+					return;
+				}
+				var items = load();
+				var has = {};
+				items.forEach(function (x) { has[x.id] = true; });
+				var added = 0;
+				arr.forEach(function (x) {
+					if (!x || !x.shop) return;
+					if (!x.id) x.id = 'id' + Date.now() + Math.random().toString(36).slice(2, 7);
+					if (has[x.id]) return;
+					has[x.id] = true;
+					items.push({
+						id: x.id,
+						shop: String(x.shop),
+						dish: x.dish ? String(x.dish) : '',
+						verdict: VERDICT_TEXT[x.verdict] ? x.verdict : 'ok',
+						date: x.date || '',
+						pros: x.pros ? String(x.pros) : '',
+						cons: x.cons ? String(x.cons) : ''
+					});
+					added++;
+				});
+				save(items);
+				render();
+				showDialog(added ? '导入 ' + added + ' 条' : '没有新记录', '好', null, false);
+			};
+			reader.readAsText(file);
+			e.target.value = '';
+		};
+
+		if (!hasStored()) {
+			save([{
+				id: 'seed1',
+				shop: '椒娘娘',
+				dish: '干拌麻辣烫',
+				verdict: 'good',
+				date: today(),
+				pros: '可以点自己喜欢吃嘟菜，加细苕粉拌着料汁，香喷喷',
+				cons: '干拌麻酱味儿的冬天容易冷，有点微淡，费牙口得多嚼，容易吃嘟太饱'
+			}]);
+		}
+
+		clearForm();
+		render();
+		renderBg();
+		renderPics();
+	})();
+</script>
+<script>
+	if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+		window.addEventListener('load', function () {
+			navigator.serviceWorker.register('sw.js').catch(function () {});
+		});
+	}
+</script>
+</body>
+</html>
