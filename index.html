@@ -487,6 +487,14 @@
 				raw = [];
 			}
 			cache = raw.map(normalize);
+			// 每次改数据结构前先留一份原始快照，便于手工恢复
+			try {
+				if (!localStorage.getItem('foodList.backup')) {
+					localStorage.setItem('foodList.backup', localStorage.getItem(KEY) || '[]');
+				}
+			} catch (e) {
+				// 存储不可用时忽略
+			}
 			// 一次性移除内置示例记录（id 为 seed1）：本机删掉，不上传
 			try {
 				if (!localStorage.getItem('foodList.seedRemoved')) {
@@ -1019,6 +1027,22 @@
 		renderBg();
 		renderPics();
 		updateSyncHint();
+
+		// 数据查看/救急：地址后加 ?dump=1 可看到本机当前数据与备份快照
+		if (/[?&]dump=1/.test(location.search)) {
+			var box = document.createElement('div');
+			box.style.cssText = 'position:fixed;inset:0;z-index:999;background:#fff;color:#333;padding:12px;overflow:auto';
+			var ta = document.createElement('textarea');
+			ta.style.cssText = 'width:100%;height:85vh;font-size:12px;font-family:monospace;line-height:1.4';
+			ta.value = JSON.stringify({
+				now: load(),
+				backup: (function () {
+					try { return localStorage.getItem('foodList.backup'); } catch (e) { return null; }
+				})()
+			}, null, 2);
+			box.appendChild(ta);
+			document.body.appendChild(box);
+		}
 
 		window.addEventListener('online', syncNow);
 		document.addEventListener('visibilitychange', function () {

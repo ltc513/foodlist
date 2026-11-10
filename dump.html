@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>数据诊断 / 恢复</title>
+<style>
+	body { margin: 0; padding: 16px; font-family: -apple-system, "PingFang SC", sans-serif; background: #fff5fa; color: #4a2f3a; font-size: 15px; }
+	h1 { font-size: 20px; margin: 0 0 6px; color: #d94f8c; }
+	p { margin: 0 0 12px; color: #a35f7d; font-size: 13px; line-height: 1.6; }
+	button { font: inherit; padding: 10px 16px; border-radius: 9px; border: 1px solid #f4d3e1; background: #fff; color: #a35f7d; margin: 0 8px 10px 0; }
+	button.main { background: #ef6ea6; color: #fff; border-color: #ef6ea6; }
+	.card { background: #fff; border: 1px solid #f8cbdf; border-radius: 12px; padding: 12px; margin-bottom: 10px; }
+	.card.del { border-left: 5px solid #bbb; opacity: .75; }
+	.shop { font-weight: 600; font-size: 16px; color: #d94f8c; }
+	.meta { font-size: 12px; color: #b07a92; margin-top: 4px; word-break: break-all; }
+	pre { background: #fff; border: 1px solid #f8cbdf; border-radius: 10px; padding: 10px; font-size: 11px; white-space: pre-wrap; word-break: break-all; max-height: 240px; overflow: auto; }
+	.tag { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px; background: #eee9ec; color: #6f646b; margin-left: 6px; }
+</style>
+</head>
+<body>
+<h1>数据诊断 / 恢复</h1>
+<p>这个页面只读你本机浏览器里的数据，不会上传任何东西。如果下面看到「已删除」但内容还在的记录，点恢复按钮即可。</p>
+
+<div id="list"></div>
+<div id="actions"></div>
+<div id="net"></div>
+<div id="raw"></div>
+
+<script>
+	(function () {
+		var KEY = 'foodList.v1';
+		var BACKUP = 'foodList.backup';
+		var CLOUD_URL = 'https://vknnawqgkzhanvlnnfhd.supabase.co/rest/v1/entries';
+		var CLOUD_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZrbm5hd3Fna3poYW52bG5uZmhkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQzMDY1NDIsImV4cCI6MjEwOTg4MjU0Mn0.Y7M12QImJtnXbwHBP_4LeJDPs7HSCJQxYeazotb7sAY';
+
+		function netTest(target, label, box) {
+			var started = Date.now();
+			var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+			var timer = setTimeout(function () { if (ctl) ctl.abort(); }, 6000);
+			fetch(target, { headers: { apikey: CLOUD_KEY }, signal: ctl ? ctl.signal : undefined })
+				.then(function (r) {
+					clearTimeout(timer);
+					return r.text().then(function (t) {
+						box.textContent = label + '：HTTP ' + r.status + '，耗时 ' + (Date.now() - started) + 'ms\n' + t.slice(0, 200);
+					});
+				})
+				.catch(function (e) {
+					clearTimeout(timer);
+					box.textContent = label + '：失败（' + (e.name === 'AbortError' ? '6 秒超时' : e.message) + '），耗时 ' + (Date.now() - started) + 'ms';
+				});
+		}
+
+		function read(key) {
+			try {
+				var raw = localStorage.getItem(key);
+				return raw ? JSON.parse(raw) : null;
+			} catch (e) {
+				return null;
+			}
+		}
+
+		function write(items) {
+			try { localStorage.setItem(KEY, JSON.stringify(items)); } catch (e) {}
+		}
+
+		var items = read(KEY) || [];
+		var backup = read(BACKUP);
+		var listEl = document.getElementById('list');
+		var actionsEl = document.getElementById('actions');
+		var netEl = document.getElementById('net');
+		var rawEl = document.getElementById('raw');
+
+		if (!items.length) {
+			var empty = document.createElement('div');
+			empty.className = 'card';
+			empty.textContent = '本机当前没有任何记录（foodList.v1 为空）';
+			listEl.appendChild(empty);
+		}
+
+		var deletedCount = 0;
+		items.forEach(function (x) {
+			var div = document.createElement('div');
+			div.className = 'card' + (x.deleted ? ' del' : '');
+
+			var shop = document.createElement('div');
+			shop.className = 'shop';
+			shop.textContent = (x.shop || '(无店名)') + (x.dish ? ' · ' + x.dish : '');
+			div.appendChild(shop);
+
+			if (x.deleted) {
+				var tag = document.createElement('span');
+				tag.className = 'tag';
+				tag.textContent = '已删除';
+				div.appendChild(tag);
+				deletedCount++;
+			}
+
+			var meta = document.createElement('div');
+			meta.className = 'meta';
+			meta.textContent = 'id: ' + x.id + ' | 日期: ' + (x.date || '-') + ' | 更新时间: ' + (x.updatedAt || '-');
+			div.appendChild(meta);
+
+			if (x.pros) {
+				var p = document.createElement('div');
+				p.className = 'meta';
+				p.textContent = '优点：' + x.pros;
+				div.appendChild(p);
+			}
+			if (x.cons) {
+				var c = document.createElement('div');
+				c.className = 'meta';
+				c.textContent = '缺点：' + x.cons;
+				div.appendChild(c);
+			}
+
+			listEl.appendChild(div);
+		});
+
+		function makeBtn(text, main, fn) {
+			var b = document.createElement('button');
+			b.textContent = text;
+			if (main) b.className = 'main';
+			b.onclick = fn;
+			actionsEl.appendChild(b);
+			return b;
+		}
+
+		if (deletedCount) {
+			makeBtn('恢复全部已删除记录（' + deletedCount + ' 条）', true, function () {
+				var now = Date.now();
+				items.forEach(function (x) {
+					if (!x.deleted) return;
+					x.deleted = false;
+					x.updatedAt = now;
+					x.dirty = true;
+				});
+				write(items);
+				alert('已恢复，回到首页会自动同步到云端');
+				location.href = './';
+			});
+		}
+
+		makeBtn('测试云端连通性', false, function () {
+			var box = document.createElement('pre');
+			box.textContent = '测试中…';
+			netEl.appendChild(box);
+			netTest(CLOUD_URL + '?select=id&limit=1', 'Supabase REST', box);
+		});
+
+		makeBtn('下载当前数据 JSON', false, function () {
+			var blob = new Blob([JSON.stringify(items, null, 2)], { type: 'application/json' });
+			var a = document.createElement('a');
+			a.href = URL.createObjectURL(blob);
+			a.download = 'local-data.json';
+			a.click();
+		});
+
+		if (backup) {
+			makeBtn('查看备份快照（' + (backup.length || 0) + ' 条）', false, function () {
+				rawEl.innerHTML = '';
+				var pre = document.createElement('pre');
+				pre.textContent = JSON.stringify(backup, null, 2);
+				rawEl.appendChild(pre);
+			});
+		}
+
+		rawEl.innerHTML = '';
+		var pre = document.createElement('pre');
+		pre.textContent = JSON.stringify({ now: items, backup: backup }, null, 2);
+		rawEl.appendChild(pre);
+	})();
+</script>
+</body>
+</html>
