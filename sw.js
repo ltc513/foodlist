@@ -1,4 +1,4 @@
-const CACHE = 'foodlist-v4';
+﻿const CACHE = 'foodlist-v8';
 
 let PHOTOS = [];
 try {
@@ -12,6 +12,7 @@ const ASSETS = [
 	'./',
 	'./index.html',
 	'./manifest.webmanifest',
+	'./pics/list.js',
 	'./icons/icon-180.png',
 	'./icons/icon-192.png',
 	'./icons/icon-512.png'
@@ -43,7 +44,7 @@ self.addEventListener('fetch', (e) => {
 	const offline = () =>
 		caches.match('./index.html').then((hit) => hit || caches.match('./'));
 
-	// 被墙/断网时 fetch 可能挂很久，2.5 秒拿不到就直接用缓存
+	// 断网/被墙时 fetch 可能挂很久，2.5 秒拿不到就直接用缓存
 	const withTimeout = (promise, ms) =>
 		Promise.race([
 			promise,

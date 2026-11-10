@@ -394,7 +394,7 @@
 		<div class="actions">
 			<button class="btn-main" id="btn-save">保存</button>
 			<button class="btn-ghost" id="btn-cancel" style="display:none">取消编辑</button>
-			<span class="hint">数据存在本地浏览器，换设备不同步</span>
+			<span class="hint" id="sync-hint">数据仅存本机</span>
 		</div>
 	</div>
 	</div>
@@ -431,6 +431,15 @@
 	(function () {
 		var KEY = 'foodList.v1';
 		var VERDICT_TEXT = { good: '好吃', ok: '一般', bad: '踩雷' };
+
+		// ===== 云端同步配置（Supabase）=====
+		// 两项都填才会启用同步；留空 = 纯本地，不影响使用
+		var CLOUD = {
+			url: 'https://vknnawqgkzhanvlnnfhd.supabase.co',
+			key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZrbm5hd3Fna3poYW52bG5uZmhkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQzMDY1NDIsImV4cCI6MjEwOTg4MjU0Mn0.Y7M12QImJtnXbwHBP_4LeJDPs7HSCJQxYeazotb7sAY',
+			table: 'entries'
+		};
+
 		var editingId = null;
 		var filter = 'all';
 		var keyword = '';
@@ -454,14 +463,50 @@
 
 		var cache = null;
 
+		function normalize(x) {
+			return {
+				id: x.id || ('id' + Date.now() + Math.random().toString(36).slice(2, 7)),
+				shop: x.shop || '',
+				dish: x.dish || '',
+				verdict: VERDICT_TEXT[x.verdict] ? x.verdict : 'ok',
+				date: x.date || '',
+				pros: x.pros || '',
+				cons: x.cons || '',
+				updatedAt: Number(x.updatedAt) || 0,
+				deleted: !!x.deleted,
+				dirty: !!x.dirty
+			};
+		}
+
 		function load() {
 			if (cache) return cache;
+			var raw = [];
 			try {
-				var raw = localStorage.getItem(KEY);
-				cache = raw ? JSON.parse(raw) : [];
+				raw = JSON.parse(localStorage.getItem(KEY) || '[]') || [];
 			} catch (e) {
-				cache = [];
+				raw = [];
 			}
+			cache = raw.map(normalize);
+			// 一次性移除内置示例记录（id 为 seed1）：本机删掉，不上传
+			try {
+				if (!localStorage.getItem('foodList.seedRemoved')) {
+					var kept = cache.filter(function (x) { return x.id !== 'seed1'; });
+					if (kept.length !== cache.length) {
+						cache = kept;
+						save(cache);
+					}
+					localStorage.setItem('foodList.seedRemoved', '1');
+				}
+			} catch (e) {
+				// 存储不可用时忽略
+			}
+			// 老数据没有 updatedAt：标记待上传，首次同步时推上云
+			cache.forEach(function (x) {
+				if (!x.updatedAt) {
+					x.updatedAt = Date.now();
+					x.dirty = true;
+				}
+			});
 			return cache;
 		}
 
@@ -474,12 +519,184 @@
 			}
 		}
 
-		function hasStored() {
-			try {
-				return localStorage.getItem(KEY) !== null;
-			} catch (e) {
-				return false;
+		// ===== 云端同步（本地优先，失败不影响使用）=====
+		function cloudReady() {
+			return !!(CLOUD.url && CLOUD.key);
+		}
+
+		function cloudBase() {
+			return CLOUD.url.replace(/\/+$/, '') + '/rest/v1/' + CLOUD.table;
+		}
+
+		function cloudHeaders(extra) {
+			var h = {
+				apikey: CLOUD.key,
+				Authorization: 'Bearer ' + CLOUD.key,
+				'Content-Type': 'application/json'
+			};
+			if (extra) {
+				Object.keys(extra).forEach(function (k) { h[k] = extra[k]; });
 			}
+			return h;
+		}
+
+		function toRow(x) {
+			return {
+				id: x.id,
+				shop: x.shop,
+				dish: x.dish,
+				verdict: x.verdict,
+				date: x.date,
+				pros: x.pros,
+				cons: x.cons,
+				updated_at: x.updatedAt,
+				deleted: !!x.deleted
+			};
+		}
+
+		// 带超时的 fetch：网络被拦时不会一直挂着导致同步锁死
+		function fetchT(url, opts, ms) {
+			var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+			var o = opts || {};
+			if (ctl) o.signal = ctl.signal;
+			return new Promise(function (resolve, reject) {
+				var timer = setTimeout(function () {
+					if (ctl) ctl.abort();
+					reject(new Error('timeout'));
+				}, ms || 8000);
+				fetch(url, o).then(function (res) {
+					clearTimeout(timer);
+					resolve(res);
+				}, function (err) {
+					clearTimeout(timer);
+					reject(err);
+				});
+			});
+		}
+
+		function cloudPull() {
+			return fetchT(cloudBase() + '?select=*', { headers: cloudHeaders() }, 8000)
+				.then(function (res) {
+					if (!res.ok) throw new Error('pull ' + res.status);
+					return res.json();
+				})
+				.then(function (rows) {
+					var items = load();
+					var byId = {};
+					items.forEach(function (x) { byId[x.id] = x; });
+					var changed = false;
+					(rows || []).forEach(function (r) {
+						var remote = normalize({
+							id: r.id,
+							shop: r.shop,
+							dish: r.dish,
+							verdict: r.verdict,
+							date: r.date,
+							pros: r.pros,
+							cons: r.cons,
+							updatedAt: r.updated_at,
+							deleted: r.deleted
+						});
+						var local = byId[r.id];
+						if (!local) {
+							items.push(remote);
+							changed = true;
+							return;
+						}
+						// 时间戳更新的那一方胜出（本地刚改的会保留待推送）
+						if (remote.updatedAt > local.updatedAt) {
+							local.shop = remote.shop;
+							local.dish = remote.dish;
+							local.verdict = remote.verdict;
+							local.date = remote.date;
+							local.pros = remote.pros;
+							local.cons = remote.cons;
+							local.deleted = remote.deleted;
+							local.updatedAt = remote.updatedAt;
+							local.dirty = false;
+							changed = true;
+						}
+					});
+					if (changed) {
+						save(items);
+						render();
+					}
+					updateSyncHint();
+				});
+		}
+
+		function cloudPush() {
+			var dirty = load().filter(function (x) { return x.dirty; });
+			if (!dirty.length) return Promise.resolve();
+			return fetchT(cloudBase() + '?on_conflict=id', {
+				method: 'POST',
+				headers: cloudHeaders({ Prefer: 'resolution=merge-duplicates,return=minimal' }),
+				body: JSON.stringify(dirty.map(toRow))
+			}, 12000).then(function (res) {
+				if (!res.ok) throw new Error('push ' + res.status);
+				var sentAt = {};
+				dirty.forEach(function (x) { sentAt[x.id] = x.updatedAt; });
+				var cur = load();
+				cur.forEach(function (x) {
+					if (x.dirty && sentAt[x.id] === x.updatedAt) x.dirty = false;
+				});
+				save(cur);
+				updateSyncHint();
+			});
+		}
+
+		var syncing = false;
+		var syncQueued = false;
+		var syncTimer = null;
+		var lastSyncOk = null;
+
+		function syncNow() {
+			if (!cloudReady()) return;
+			if (syncing) {
+				syncQueued = true;
+				return;
+			}
+			syncing = true;
+			syncQueued = false;
+			updateSyncHint();
+			cloudPull().then(
+				function () { lastSyncOk = true; },
+				function () { lastSyncOk = false; }
+			).then(function () {
+				return cloudPush().then(null, function () { lastSyncOk = false; });
+			}).then(function () {
+				syncing = false;
+				updateSyncHint();
+				if (syncQueued) syncNow();
+			});
+		}
+
+		function syncSoon() {
+			clearTimeout(syncTimer);
+			syncTimer = setTimeout(syncNow, 800);
+		}
+
+		function updateSyncHint() {
+			var el = $('sync-hint');
+			if (!el) return;
+			if (!cloudReady()) {
+				el.textContent = '仅存在本机浏览器 · 云端未配置';
+				return;
+			}
+			if (syncing) {
+				el.textContent = '同步中…';
+				return;
+			}
+			var pending = load().filter(function (x) { return x.dirty; }).length;
+			if (pending) {
+				el.textContent = '待同步 ' + pending + ' 条 · 联网后自动重试';
+				return;
+			}
+			if (lastSyncOk === false) {
+				el.textContent = '未能连接云端 · 仅本机可用';
+				return;
+			}
+			el.textContent = lastSyncOk ? '已同步 · 所有人看到同一份' : '正在连接云端…';
 		}
 
 		function today() {
@@ -515,6 +732,7 @@
 		}
 
 		function match(item) {
+			if (item.deleted) return false;
 			if (filter !== 'all' && item.verdict !== filter) return false;
 			if (!keyword) return true;
 			var hay = [item.shop, item.dish, item.pros, item.cons].join('\n').toLowerCase();
@@ -588,10 +806,17 @@
 			delBtn.textContent = '删除';
 			delBtn.onclick = function () {
 				showDialog('删除「' + (item.shop || '这条') + '」？', '删除', function () {
-					var items = load().filter(function (x) { return x.id !== item.id; });
+					var items = load();
+					items.forEach(function (x) {
+						if (x.id !== item.id) return;
+						x.deleted = true;
+						x.updatedAt = Date.now();
+						x.dirty = true;
+					});
 					save(items);
 					if (editingId === item.id) clearForm();
 					render();
+					syncSoon();
 				}, true);
 			};
 			foot.appendChild(delBtn);
@@ -672,15 +897,15 @@
 			if (editingId) {
 				items = items.map(function (x) {
 					if (x.id !== editingId) return x;
-					return {
-						id: x.id,
-						shop: shop,
-						dish: dish,
-						verdict: $('f-verdict').value,
-						date: $('f-date').value || today(),
-						pros: pros,
-						cons: cons
-					};
+					x.shop = shop;
+					x.dish = dish;
+					x.verdict = $('f-verdict').value;
+					x.date = $('f-date').value || today();
+					x.pros = pros;
+					x.cons = cons;
+					x.updatedAt = Date.now();
+					x.dirty = true;
+					return x;
 				});
 			} else {
 				items.push({
@@ -690,12 +915,16 @@
 					verdict: $('f-verdict').value,
 					date: $('f-date').value || today(),
 					pros: pros,
-					cons: cons
+					cons: cons,
+					updatedAt: Date.now(),
+					deleted: false,
+					dirty: true
 				});
 			}
 			save(items);
 			clearForm();
 			render();
+			syncSoon();
 		};
 
 		$('btn-cancel').onclick = clearForm;
@@ -762,41 +991,40 @@
 					if (!x.id) x.id = 'id' + Date.now() + Math.random().toString(36).slice(2, 7);
 					if (has[x.id]) return;
 					has[x.id] = true;
-					items.push({
+					items.push(normalize({
 						id: x.id,
-						shop: String(x.shop),
+						shop: x.shop ? String(x.shop) : '',
 						dish: x.dish ? String(x.dish) : '',
-						verdict: VERDICT_TEXT[x.verdict] ? x.verdict : 'ok',
+						verdict: x.verdict,
 						date: x.date || '',
 						pros: x.pros ? String(x.pros) : '',
-						cons: x.cons ? String(x.cons) : ''
-					});
+						cons: x.cons ? String(x.cons) : '',
+						updatedAt: Number(x.updatedAt) || Date.now(),
+						deleted: !!x.deleted,
+						dirty: true
+					}));
 					added++;
 				});
 				save(items);
 				render();
+				syncSoon();
 				showDialog(added ? '导入 ' + added + ' 条' : '没有新记录', '好', null, false);
 			};
 			reader.readAsText(file);
 			e.target.value = '';
 		};
 
-		if (!hasStored()) {
-			save([{
-				id: 'seed1',
-				shop: '椒娘娘',
-				dish: '干拌麻辣烫',
-				verdict: 'good',
-				date: today(),
-				pros: '可以点自己喜欢吃嘟菜，加细苕粉拌着料汁，香喷喷',
-				cons: '干拌麻酱味儿的冬天容易冷，有点微淡，费牙口得多嚼，容易吃嘟太饱'
-			}]);
-		}
-
 		clearForm();
 		render();
 		renderBg();
 		renderPics();
+		updateSyncHint();
+
+		window.addEventListener('online', syncNow);
+		document.addEventListener('visibilitychange', function () {
+			if (!document.hidden) syncNow();
+		});
+		syncSoon();
 	})();
 </script>
 <script>
