@@ -34,11 +34,15 @@
 		var CLOUD_URL = 'https://vknnawqgkzhanvlnnfhd.supabase.co/rest/v1/entries';
 		var CLOUD_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZrbm5hd3Fna3poYW52bG5uZmhkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQzMDY1NDIsImV4cCI6MjEwOTg4MjU0Mn0.Y7M12QImJtnXbwHBP_4LeJDPs7HSCJQxYeazotb7sAY';
 
-		function netTest(target, label, box) {
+		function netTest(target, label, box, withHeaders) {
 			var started = Date.now();
 			var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
 			var timer = setTimeout(function () { if (ctl) ctl.abort(); }, 6000);
-			fetch(target, { headers: { apikey: CLOUD_KEY }, signal: ctl ? ctl.signal : undefined })
+			var opts = { signal: ctl ? ctl.signal : undefined };
+			if (withHeaders) {
+				opts.headers = { apikey: CLOUD_KEY, Authorization: 'Bearer ' + CLOUD_KEY };
+			}
+			fetch(target, opts)
 				.then(function (r) {
 					clearTimeout(timer);
 					return r.text().then(function (t) {
@@ -142,10 +146,17 @@
 		}
 
 		makeBtn('测试云端连通性', false, function () {
-			var box = document.createElement('pre');
-			box.textContent = '测试中…';
-			netEl.appendChild(box);
-			netTest(CLOUD_URL + '?select=id&limit=1', 'Supabase REST', box);
+			var boxA = document.createElement('pre');
+			boxA.textContent = '测试中…';
+			netEl.appendChild(boxA);
+			netTest(CLOUD_URL + '?select=id&limit=1&apikey=' + encodeURIComponent(CLOUD_KEY),
+				'① 普通请求（key 放 URL，不触发预检）', boxA, false);
+
+			var boxB = document.createElement('pre');
+			boxB.textContent = '测试中…';
+			netEl.appendChild(boxB);
+			netTest(CLOUD_URL + '?select=id&limit=1',
+				'② 带 apikey 请求头（会触发预检 OPTIONS）', boxB, true);
 		});
 
 		makeBtn('下载当前数据 JSON', false, function () {
