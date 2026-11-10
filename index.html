@@ -838,7 +838,11 @@
 			listEl.innerHTML = '';
 			var items = load()
 				.filter(match)
-				.sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); });
+				.sort(function (a, b) {
+					var byDate = (b.date || '').localeCompare(a.date || '');
+					if (byDate) return byDate;
+					return (b.updatedAt || 0) - (a.updatedAt || 0);
+				});
 
 			if (!items.length) {
 				var empty = document.createElement('div');
